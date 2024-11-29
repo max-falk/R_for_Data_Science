@@ -1,0 +1,240 @@
+---
+title: "R_for_Data_Science_ASSESSMENT"
+author: "B270551"
+date: "2024-11-28"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align="center")
+
+```
+
+# B270551 - RDS Class Assignment:
+
+Creating a custom workflow for processing and visualising data 
+
+```{r header, include=FALSE}
+
+```
+
+## First, we need to load in the relevant data sets:  
+
+I have named these 'annot', 'data' and 'genelist' for gene annotation, full data & the relevant gene subset respectively.
+```{r loading_data, include=TRUE}
+annot <- read.csv("./gene_annotation.csv")
+data <- read.csv("./data_all.csv")
+genelist <- read.csv("./genelist_6.txt")
+```
+
+## Now, loading in the relevant libraries:  
+
+
+```{r loading_packages, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+install.packages("tidyverse")
+library(tidyverse)
+library(pheatmap)
+```
+
+## Genelist Manipulation 
+
+Our genelist contains duplicates, which must first be removed: 
+```{r manipulating data, include=TRUE}
+#Made a boolean vector of duplicates and used this to index the genelist
+duplicates <- duplicated(genelist$x)
+genelist <- genelist[!duplicates,]
+#...and now need to restore list to a data frame
+genelist <- as.data.frame(genelist)
+```
+
+## Dataset Manipulation
+
+In this stage, I am manipulating my dataset. I have **logged all values**,  **replaced gene index with the gene longname** and have **annotated each gene with its 'type'**.
+
+I have then indexed the data with the unique genelist from above to extract out only the relevant genes.
+
+The first few rows of the output is as follows:
+
+```{r datamanipulation, echo=FALSE}
+data <- log(data)
+data$longname <- annot$LongName
+data$type <- as.character(annot$Type)
+#removing 'X' column of gene numbers
+data <- data[,2:15]
+#moving longname and type columns to left hand side
+data <- data[, c((ncol(data)-1):ncol(data), 1:(ncol(data)-2))]
+#Selecting the appropriate data by indexing GeneList
+gene_subset <- genelist [, "genelist"]
+relevant_data <- data[gene_subset,]
+head(relevant_data)
+```
+This is our base data frame we can now use for our plots.
+<b>
+
+## Generating a Boxplot 
+
+### i) Modifying our base data 
+
+To make our base data suitable for a boxplot, we can generate a pivot table for including the treatment group.
+
+The output is as follows:
+```{r pivot_table, echo=FALSE}
+#Creating a pivot table of relevant data
+pivot_relevant_data <- relevant_data %>%
+  pivot_longer(cols = A:L,
+               names_to = "variable",
+               values_to = "values")
+
+#Adding Treatments to pivot table data 
+pivot_relevant_data$Treatment <- as.character(rep(c(1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4), times = 40))
+#Ensuring type is as.character
+pivot_relevant_data$type <- as.character(pivot_relevant_data$type)
+
+head(pivot_relevant_data)
+```
+### ii) Generating the plot 
+
+We can now use this data to generate our box plot, where jitter is applied to separate out data for each genetype within each treatment group:
+```{r plotting boxplot, echo=FALSE, fig.align='center'}
+treatment_colours <- c("1" = "lightblue", "2" = "skyblue", "3" = "deepskyblue", "4" = "dodgerblue")
+  point_colours <- setNames(c("slateblue3", "lavender", "blueviolet"), c("XA", "XB", "XC")) 
+ 
+  boxplot(
+    values ~ Treatment, 
+    data = pivot_relevant_data,
+    col = treatment_colours,           # Colors for each treatment
+    border = "black",           # Border color for boxes
+    xlab = "Treatment Group",   # X-axis label
+    ylab = "Log(Expression)",   # Y-axis label
+    main = "Figure 1: Log(Expression) for Genes in each Treatment Group",  
+    notch = FALSE,              
+    las = 1                     # Using to rotate axis labels for readability
+  )
+  
+  # Overlay jittered points (XA)
+  stripchart(
+    values ~ (Treatment), #shifting so on LHS
+    data = subset(pivot_relevant_data, type == "XA"),
+    method = "jitter",          # Add jitter to reduce overlap
+    vertical = TRUE,            # Arrange points vertically
+    pch = 19,
+    col =  "slateblue3",
+    add = TRUE,                 # Add to the existing boxplot
+    cex = 0.8,                  # Size of the points
+    jitter = 0.2,                # Amount of horizontal jitter
+    at = as.numeric(unique(pivot_relevant_data$Treatment)) - 0.2
+  )
+  
+  # Overlay jittered points (XB)
+  stripchart(
+    values ~ Treatment,
+    data = subset(pivot_relevant_data, type == "XB"),
+    method = "jitter",          # Add jitter to reduce overlap
+    vertical = TRUE,            # Arrange points vertically
+    pch = 19,
+    col =  "lavender",
+    add = TRUE,                 # Add to the existing boxplot
+    cex = 0.8,                  # Size of the points
+    jitter = 0.2                # Amount of horizontal jitter
+  )
+  
+  # Overlay jittered points (XC)
+  stripchart(
+    values ~ (Treatment), #shifting so on RHS
+    data = subset(pivot_relevant_data, type == "XC"),
+    method = "jitter",          # Add jitter to reduce overlap
+    vertical = TRUE,            # Arrange points vertically
+    pch = 19,
+    col =  "blueviolet",
+    add = TRUE,                 # Add to the existing boxplot
+    cex = 0.8,                  # Size of the points
+    jitter = 0.2,                # Amount of horizontal jitter
+    at = as.numeric(unique(pivot_relevant_data$Treatment)) + 0.2,
+  )
+  
+  # Adding a legend
+  legend(
+    "topright", 
+    legend = unique(pivot_relevant_data$type), 
+    pch = 19, 
+    col = point_colours, 
+    title = "Type"
+  )
+```
+
+## Generating heatmaps 
+
+### i) Manipulating Data 
+
+We need to manipulate our base data in a slightly different way for the heatmaps to ensure rownames are relabelled as the gene long name
+
+We also need to ensure relevant datasets exist that can be used to generate the row and column annotations:
+```{r heatmap manipulation, include=TRUE}
+#Creating Heatmaps 
+heatmap_data <- relevant_data
+rownames(heatmap_data) <- heatmap_data$longname
+heatmap_data <- heatmap_data[,3:14]
+heatmap_data <- as.matrix(heatmap_data) 
+write.csv(heatmap_data, file= "heatmap_data.csv")  
+
+#Creating data for annotations (rows)
+gene_types <- data.frame(Type = relevant_data$type)
+rownames(gene_types) <- relevant_data$longname 
+
+
+#Creating data dor annotations (columns)
+treatment <- data.frame(
+  Treatment = rep(c("1", "2", "3", "4"), each = 3)  # Treatments
+)
+rownames(treatment) <- colnames(heatmap_data)
+
+#Let's view our heatmap data to chcek it is as we want:
+head(heatmap_data)
+```
+### ii) Generating the heatmaps 
+
+First, generating a heatmap where only the genes are clustered:
+
+```{r heatmap1, echo=FALSE, fig.align='center'}
+annotation_colours <- list(
+  Type = c(XA = "slateblue3", XB = "lavender", XC = "blueviolet"),
+  Treatment = c("1" = "SlateGray", "2" = "Navy", "3" = "SteelBlue", "4" = "DodgerBlue4")
+)
+
+pheatmap(heatmap_data,
+         cluster_rows = TRUE,
+         cluster_cols = FALSE,
+         scale='row',
+         fontsize_row = 6,
+         fontsize_col = 10,
+         legend=TRUE,
+         main = "Figure 2 - Heatmap: Only Genes Clustered",
+         annotation_row = gene_types,
+         annotation_col = treatment,
+         annotation_colors = annotation_colours,
+         annotation_border = TRUE,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(500)
+)
+
+```
+
+Now, generating a heatmap where BOTH genes and treatments are clustered:
+
+```{r heatmap2, echo=FALSE, fig.align='centre'}
+pheatmap(heatmap_data,
+         cluster_rows = TRUE,
+         cluster_cols = TRUE,
+         scale='row',
+         fontsize_row = 6,
+         fontsize_col = 10,
+         legend=TRUE,
+         main = "Figure 3 - Heatmap: Genes and Samples Clustered",
+         annotation_row = gene_types,
+         annotation_col = treatment,
+         annotation_colors = annotation_colours,
+         annotation_border = TRUE,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(500)
+)
+
+```
+
